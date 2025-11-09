@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Апартаменты</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --tg-bg: #17212b;
+            --tg-bg-light: #232e3b;
+            --tg-text: #ffffff;
+            --tg-accent: #54a9eb;
+            --tg-danger: #f44336;
+            --tg-radius: 12px;
+            --tg-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        * { box-sizing: border-box; margin:0; padding:0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--tg-bg); color: var(--tg-text); padding: 16px; min-height: 100vh; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .admin-btn { position: fixed; bottom: 20px; right: 20px; background: var(--tg-accent); color: white; border: none; width: 56px; height: 56px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 999; }
+        .card { background: var(--tg-bg-light); border-radius: var(--tg-radius); padding: 16px; margin-bottom: 16px; box-shadow: var(--tg-shadow); }
+        .price { font-size: 1.4rem; font-weight: bold; color: var(--tg-accent); margin: 8px 0; }
+        button { background: var(--tg-accent); color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        button:hover { background: #6ab7f5; }
+        .btn-danger { background: var(--tg-danger); }
+        .btn-secondary { background: #546e7a; }
+        .form-group { margin-bottom: 14px; }
+        label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: #b0b0b0; }
+        input, textarea, select { width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid #36465a; border-radius: 8px; color: white; }
+        .hidden { display: none !important; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-box { background: var(--tg-bg-light); padding: 24px; border-radius: var(--tg-radius); width: 90%; max-width: 500px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 style="text-align:center; margin-bottom:24px;">Апартаменты</h1>
+    <div id="apartmentsList">Загрузка...</div>
+</div>
+
+<button class="admin-btn" id="adminBtn">Admin</button>
+
+<!-- Бронирование -->
+<div id="bookingModal" class="hidden modal">
+    <div class="modal-box">
+        <h3 id="modalTitle">Бронирование</h3>
+        <div class="form-group"><label>Заезд:</label><input type="date" id="dateIn"></div>
+        <div class="form-group"><label>Выезд:</label><input type="date" id="dateOut"></div>
+        <div class="form-group"><label>Имя:</label><input type="text" id="clientFirstName"></div>
+        <div class="form-group"><label>Телефон:</label><input type="tel" id="clientPhone"></div>
+        <p><strong>Итого: <span id="totalPrice">0</span> ₽</strong></p>
+        <button onclick="confirmBooking()">Забронировать</button>
+        <button class="btn-secondary" onclick="closeBookingModal()">Отмена</button>
+    </div>
+</div>
+
+<!-- Админка -->
+<div id="adminLoginModal" class="hidden modal">
+    <div class="modal-box">
+        <h3>Вход в админку</h3>
+        <input type="password" id="adminPassword" placeholder="Пароль">
+        <button id="loginBtn" style="margin-top:12px;">Войти</button>
+    </div>
+</div>
+
+<div id="adminPanel" class="hidden">
+    <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:var(--tg-bg);padding:16px;overflow-y:auto;">
+        <button style="position:absolute;top:16px;right:16px;background:var(--tg-danger);" onclick="closeAdminPanel()">Закрыть</button>
+        <h2 style="text-align:center;">Админ‑панель</h2>
+        <button onclick="showAddApartmentForm()">Добавить</button>
+        <div id="adminApartments" style="margin-top:16px;"></div>
+        <div id="addApartmentForm" class="hidden" style="background:var(--tg-bg-light);padding:16px;border-radius:12px;margin-top:20px;">
+            <h3>Новый апартамент</h3>
+            <div class="form-group"><label>Название:</label><input type="text" id="newName"></div>
+            <div class="form-group"><label>Цена (₽/ночь):</label><input type="number" id="newPrice" value="3000"></div>
+            <div class="form-group"><label>Описание:</label><textarea id="newDescription" rows="3"></textarea></div>
+            <div class="form-group"><label>Адрес:</label><input type="text" id="newAddress"></div>
+            <div class="form-group"><label>Гостей:</label><input type="number" id="newMaxGuests" min="1" value="2"></div>
+            <div class="form-group"><label>Статус:</label>
+                <select id="newStatus">
+                    <option value="available">Доступен</option>
+                    <option value="booked">Забронирован</option>
+                </select>
+            </div>
+            <button id="saveApartmentBtn">Сохранить</button>
+            <button class="btn-secondary" onclick="hideAddApartmentForm()">Отмена</button>
+        </div>
+        <h2 style="margin-top:24px;">Бронирования</h2>
+        <div id="bookingsList"></div>
+    </div>
+</div>
+
+<script>
+// === ПЕРЕМЕННЫЕ ===
+let apartments = [], bookings = [], currentApartment = null, editingId = null;
+const ADMIN_PASSWORD = 'admin123';
+const VERSION = 'v6'; // ← СБРОС ПРИ ИЗМЕНЕНИИ
+
+// === Telegram ===
+let tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+// === СБРОС ДАННЫХ ПРИ НОВОЙ ВЕРСИИ ===
+function resetIfNewVersion() {
+    if (localStorage.getItem('appVersion') !== VERSION) {
+        localStorage.clear();
+        localStorage.setItem('appVersion', VERSION);
+        alert('Данные обновлены! 6 квартир загружены.');
+    }
+}
+
+// === ЗАГРУЗКА ===
+function loadData() {
+    resetIfNewVersion();
+    try {
+        apartments = JSON.parse(localStorage.getItem('apartments') || '[]');
+        bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+    } catch(e) { apartments = []; bookings = []; }
+
+    // === 6 КВАРТИР — ТОЧНО ПО ВАШЕМУ СПИСКУ ===
+    if (apartments.length === 0) {
+        apartments = [
+            { id: 1, name: 'Немига 8 (три комнаты)', price: 3000, description: '3 комнаты', address: 'Немига 8', max_guests: 6, status: 'available' },
+            { id: 2, name: 'Немига 8 (две комнаты)', price: 3000, description: '2 комнаты', address: 'Немига 8', max_guests: 4, status: 'available' },
+            { id: 3, name: 'Мястровская 24', price: 3000, description: 'Светлая', address: 'Мястровская 24', max_guests: 4, status: 'available' },
+            { id: 4, name: 'Карла Маркса 11', price: 3000, description: 'Центр', address: 'Карла Маркса 11', max_guests: 3, status: 'available' },
+            { id: 5, name: 'Мясникова 17', price: 3000, description: 'Тихий район', address: 'Мясникова 17', max_guests: 2, status: 'available' },
+            { id: 6, name: 'Романовская Слобода 22', price: 3000, description: 'Студия', address: 'Романовская Слобода 22', max_guests: 2, status: 'available' }
+        ];
+        saveData();
+    }
+}
+
+function saveData() {
+    localStorage.setItem('apartments', JSON.stringify(apartments));
+    localStorage.setItem('bookings', JSON.stringify(bookings));
+}
+
+// === ОТОБРАЖЕНИЕ ===
+function renderApartments() {
+    const list = document.getElementById('apartmentsList');
+    const available = apartments.filter(a => a.status === 'available');
+    if (available.length === 0) {
+        list.innerHTML = '<p style="text-align:center;color:#888;">Нет доступных</p>';
+        return;
+    }
+    list.innerHTML = available.map(a => `
+        <div class="card">
+            <h3>${a.name}</h3>
+            <p>${a.description}</p>
+            <p><strong>Адрес:</strong> ${a.address}</p>
+            <p><strong>Гостей:</strong> до ${a.max_guests}</p>
+            <div class="price">${a.price.toLocaleString()} ₽ / ночь</div>
+            <button onclick="openBooking(${a.id})">Забронировать</button>
+        </div>
+    `).join('');
+}
+
+// === БРОНИРОВАНИЕ ===
+function openBooking(id) {
+    currentApartment = apartments.find(a => a.id === id);
+    document.getElementById('modalTitle').textContent = currentApartment.name;
+    document.getElementById('dateIn').value = '';
+    document.getElementById('dateOut').value = '';
+    document.getElementById('clientFirstName').value = '';
+    document.getElementById('clientPhone').value = '';
+    document.getElementById('totalPrice').textContent = '0';
+    document.getElementById('bookingModal').classList.remove('hidden');
+}
+
+function closeBookingModal() {
+    document.getElementById('bookingModal').classList.add('hidden');
+}
+
+function calcPrice() {
+    const inD = document.getElementById('dateIn').value;
+    const outD = document.getElementById('dateOut').value;
+    if (!inD || !outD || !currentApartment) return 0;
+    const start = new Date(inD), end = new Date(outD);
+    if (end <= start) return 0;
+    const nights = Math.ceil((end - start) / 86400000);
+    return nights > 0 ? currentApartment.price * nights : 0;
+}
+
+document.getElementById('dateIn')?.addEventListener('change', () => {
+    document.getElementById('totalPrice').textContent = calcPrice().toLocaleString();
+});
+document.getElementById('dateOut')?.addEventListener('change', () => {
+    document.getElementById('totalPrice').textContent = calcPrice().toLocaleString();
+});
+
+function confirmBooking() {
+    const total = calcPrice();
+    if (total === 0) return alert('Выберите даты');
+    const name = document.getElementById('clientFirstName').value.trim();
+    const phone = document.getElementById('clientPhone').value.trim();
+    if (!name || !phone) return alert('Заполните имя и телефон');
+
+    bookings.push({ id: Date.now(), apartment: currentApartment.name, name, phone, date_in: document.getElementById('dateIn').value, date_out: document.getElementById('dateOut').value, total });
+    currentApartment.status = 'booked';
+    saveData();
+    alert('Бронь принята!');
+    closeBookingModal();
+    renderApartments();
+    if (document.getElementById('adminPanel').classList.contains('hidden') === false) renderBookings();
+}
+
+// === АДМИНКА ===
+document.getElementById('adminBtn').addEventListener('click', () => {
+    document.getElementById('adminLoginModal').classList.remove('hidden');
+});
+
+document.getElementById('loginBtn').addEventListener('click', () => {
+    if (document.getElementById('adminPassword').value === ADMIN_PASSWORD) {
+        document.getElementById('adminLoginModal').classList.add('hidden');
+        document.getElementById('adminPanel').classList.remove('hidden');
+        renderAdmin();
+        document.getElementById('adminBtn').style.background = '#4caf50';
+    } else {
+        alert('Неверный пароль');
+    }
+});
+
+function closeAdminPanel() {
+    document.getElementById('adminPanel').classList.add('hidden');
+}
+
+function showAddApartmentForm() {
+    document.getElementById('newName').value = '';
+    document.getElementById('newPrice').value = 3000;
+    document.getElementById('newDescription').value = '';
+    document.getElementById('newAddress').value = '';
+    document.getElementById('newMaxGuests').value = 2;
+    document.getElementById('newStatus').value = 'available';
+    document.getElementById('addApartmentForm').classList.remove('hidden');
+    document.getElementById('saveApartmentBtn').onclick = addApartment;
+}
+
+function hideAddApartmentForm() {
+    document.getElementById('addApartmentForm').classList.add('hidden');
+}
+
+function addApartment() {
+    const name = document.getElementById('newName').value.trim();
+    if (!name) return alert('Введите название');
+    apartments.push({
+        id: Date.now(),
+        name,
+        price: +document.getElementById('newPrice').value || 3000,
+        description: document.getElementById('newDescription').value.trim(),
+        address: document.getElementById('newAddress').value.trim(),
+        max_guests: +document.getElementById('newMaxGuests').value || 1,
+        status: document.getElementById('newStatus').value
+    });
+    saveData();
+    renderAdmin();
+    renderApartments();
+    hideAddApartmentForm();
+}
+
+function renderAdmin() {
+    document.getElementById('adminApartments').innerHTML = apartments.map(a => `
+        <div class="card">
+            <h3>${a.name} <small>(${a.status})</small></h3>
+            <p>Цена: ${a.price} ₽ | Гостей: ${a.max_guests}</p>
+            <button onclick="editApartment(${a.id})">Изменить</button>
+            <button class="btn-danger" onclick="deleteApartment(${a.id})">Удалить</button>
+        </div>
+    `).join('');
+    renderBookings();
+}
+
+function editApartment(id) {
+    const a = apartments.find(x => x.id === id);
+    document.getElementById('newName').value = a.name;
+    document.getElementById('newPrice').value = a.price;
+    document.getElementById('newDescription').value = a.description;
+    document.getElementById('newAddress').value = a.address;
+    document.getElementById('newMaxGuests').value = a.max_guests;
+    document.getElementById('newStatus').value = a.status;
+    editingId = id;
+    document.getElementById('addApartmentForm').classList.remove('hidden');
+    document.getElementById('saveApartmentBtn').onclick = () => {
+        a.name = document.getElementById('newName').value.trim();
+        a.price = +document.getElementById('newPrice').value || 3000;
+        a.description = document.getElementById('newDescription').value.trim();
+        a.address = document.getElementById('newAddress').value.trim();
+        a.max_guests = +document.getElementById('newMaxGuests').value || 1;
+        a.status = document.getElementById('newStatus').value;
+        saveData();
+        renderAdmin();
+        renderApartments();
+        hideAddApartmentForm();
+    };
+}
+
+function deleteApartment(id) {
+    if (confirm('Удалить?')) {
+        apartments = apartments.filter(x => x.id !== id);
+        saveData();
+        renderAdmin();
+        renderApartments();
+    }
+}
+
+function renderBookings() {
+    const list = document.getElementById('bookingsList');
+    list.innerHTML = bookings.length ? bookings.map(b => `
+        <div class="card" style="font-size:0.9rem;">
+            <strong>${b.apartment}</strong><br>
+            ${b.name} | ${b.phone}<br>
+            ${b.date_in} – ${b.date_out} | ${b.total} ₽
+        </div>
+    `).join('') : '<p style="text-align:center;color:#888;">Нет броней</p>';
+}
+
+// === ЗАПУСК ===
+document.addEventListener('DOMContentLoaded', () => {
+    loadData();
+    renderApartments();
+});
+</script>
+
+</body>
+</html>
